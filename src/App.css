@@ -332,6 +332,67 @@
   padding: 36px 42px 112px;
 }
 
+.app-shell {
+  transition: filter .9s var(--ease-out), transform .9s var(--ease-out), opacity .9s var(--ease-out);
+}
+
+.app-shell.intro-active {
+  filter: blur(12px) saturate(.7);
+  transform: scale(1.02);
+}
+
+.intro-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgba(245, 247, 244, 0.16);
+  backdrop-filter: blur(6px);
+  animation: intro-fade 1.8s var(--ease-out) forwards;
+}
+
+.intro-word {
+  color: #173c36;
+  font: 800 clamp(4rem, 14vw, 13rem)/1 'Manrope', sans-serif;
+  letter-spacing: -.09em;
+  text-transform: uppercase;
+  text-shadow: 0 24px 80px rgba(23, 60, 54, 0.18);
+  animation: intro-text 1.4s var(--ease-out) both;
+}
+
+@keyframes intro-text {
+  0% {
+    opacity: 0;
+    filter: blur(14px);
+    transform: scale(1.2) translateY(24px);
+  }
+  30% {
+    opacity: 1;
+    filter: blur(0);
+    transform: scale(1) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: scale(1);
+  }
+}
+
+@keyframes intro-fade {
+  0% {
+    opacity: 1;
+    visibility: visible;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
 .page-heading {
   display: flex;
   align-items: center;
@@ -1337,12 +1398,103 @@ tbody tr:hover {
   font-weight: 700;
 }
 
+.page-heading-copy {
+  animation: reveal-up .7s var(--ease-out) both;
+}
+
+.intro-waiting .page-heading-copy,
+.intro-waiting .summary-stat,
+.intro-waiting .directory-panel,
+.intro-waiting .outcome-segment {
+  animation: none;
+  opacity: 0;
+}
+
+.intro-revealed .page-heading-copy,
+.intro-revealed .summary-stat,
+.intro-revealed .directory-panel {
+  animation: reveal-up .7s var(--ease-out) both;
+}
+
+.intro-revealed .summary-stat:nth-child(2) { animation-delay: 80ms; }
+.intro-revealed .summary-stat:nth-child(3) { animation-delay: 160ms; }
+.intro-revealed .summary-stat:nth-child(4) { animation-delay: 240ms; }
+
+.summary-stat,
+.directory-panel,
+.outcome-row,
+.program-outcome-row,
+.result-row,
+.report-option {
+  opacity: 0;
+  animation: reveal-up .55s var(--ease-out) forwards;
+}
+
+.nav-item,
+.button,
+.row-action,
+.icon-button,
+.outcome-reset,
+.filter-button,
+.text-button,
+.report-option .button {
+  transition: transform .18s var(--ease-out), box-shadow .18s var(--ease-out), background .18s var(--ease-out), border-color .18s var(--ease-out), color .18s var(--ease-out);
+}
+
+.nav-item:hover,
+.button:hover,
+.row-action:hover,
+.icon-button:hover,
+.outcome-reset:hover,
+.filter-button:hover,
+.text-button:hover {
+  transform: translateY(-1px);
+}
+
+.outcome-segment {
+  opacity: 0;
+  animation: bar-grow .55s var(--ease-out) forwards;
+}
+
+.intro-waiting .outcome-segment {
+  animation: none;
+  opacity: 0;
+}
+
+.intro-revealed .outcome-segment {
+  animation: bar-grow .55s var(--ease-out) both;
+}
+
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
 select:focus-visible {
   outline: 2px solid #4d9567;
   outline-offset: 2px;
+}
+
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bar-grow {
+  from {
+    opacity: 0;
+    transform: scaleX(0.92);
+    transform-origin: left center;
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+    transform-origin: left center;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -67,6 +67,12 @@ function App() {
   const [editing, setEditing] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [toast, setToast] = useState('')
+  const [showIntro, setShowIntro] = useState(true)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowIntro(false), 2100)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   useEffect(() => localStorage.setItem('alumni-tracker-graduates', JSON.stringify(graduates)), [graduates])
   useEffect(() => {
@@ -192,8 +198,8 @@ function App() {
           <table>
             <thead><tr><th>GRADUATE</th><th>PROGRAM</th><th>CLASS</th><th>OUTCOME</th><th>ROLE &amp; ORGANIZATION</th><th /></tr></thead>
             <tbody>
-              {rows.map((graduate) => (
-                <tr key={graduate.id}>
+              {rows.map((graduate, index) => (
+                <tr key={graduate.id} className="result-row" style={{ animationDelay: `${index * 35}ms` }}>
                   <td><div className="graduate-cell"><span className={`graduate-avatar avatar-${graduate.color}`}>{graduate.name.split(' ').map((part) => part[0]).join('')}</span><span className="graduate-info"><strong>{graduate.name}</strong><small>{graduate.email}</small></span></div></td>
                   <td><span className="program-name">{graduate.program}</span></td>
                   <td><span className="class-year">{graduate.year}</span></td>
@@ -224,7 +230,14 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <>
+      {showIntro && (
+        <div className="intro-overlay" aria-live="polite">
+          <div className="intro-word">Alumni</div>
+        </div>
+      )}
+
+      <div className={`app-shell ${showIntro ? 'intro-active' : ''}`}>
       <aside className="sidebar">
         <a className="brand" href="#overview" onClick={() => setActivePage('Overview')}>
           <span className="brand-mark"><GraduationCap size={21} strokeWidth={2.2} /></span>
@@ -267,7 +280,7 @@ function App() {
         </header>
 
         <div className="page-content">
-          <section className="page-heading">
+          <section className={`page-heading ${showIntro ? 'intro-waiting' : 'intro-revealed'}`}>
             <div className="page-heading-copy"><h1>{pageHeading[0]}</h1><p>{pageHeading[1]}</p></div>
             {activePage === 'Overview' || activePage === 'Graduates'
               ? <button className="button button-primary" onClick={() => openForm()}><Plus size={17} /> Add graduate</button>
@@ -277,21 +290,28 @@ function App() {
           </section>
           {activePage === 'Overview' && (
             <>
-              <section className="outcomes-overview overview-dashboard" aria-label="Graduate outcomes summary">
+              <section className={`outcomes-overview overview-dashboard ${showIntro ? 'intro-waiting' : 'intro-revealed'}`} aria-label="Graduate outcomes summary">
                 <div className="overview-heading">
                   <div><h2>First destinations</h2><p>Outcomes recorded for {graduates.length} {graduates.length === 1 ? 'graduate' : 'graduates'}.</p></div>
                   <UsersRound size={19} aria-hidden="true" />
                 </div>
                 <div className="summary-stats">
-                  <div className="summary-stat"><span>Graduates tracked</span><strong>{graduates.length.toLocaleString()}</strong></div>
-                  <div className="summary-stat"><span>Employed</span><strong>{outcomeRate(outcomeCounts.employed)}<small>%</small></strong></div>
-                  <div className="summary-stat"><span>Further study</span><strong>{outcomeCounts.furtherStudy}</strong></div>
-                  <div className="summary-stat"><span>Seeking work</span><strong>{outcomeCounts.seekingWork}</strong></div>
+                  {[
+                    { label: 'Graduates tracked', value: graduates.length.toLocaleString() },
+                    { label: 'Employed', value: `${outcomeRate(outcomeCounts.employed)}%`, isPercent: true },
+                    { label: 'Further study', value: outcomeCounts.furtherStudy },
+                    { label: 'Seeking work', value: outcomeCounts.seekingWork },
+                  ].map(({ label, value, isPercent }, index) => (
+                    <div className="summary-stat reveal-up" key={label} style={{ animationDelay: `${index * 90}ms` }}>
+                      <span>{label}</span>
+                      <strong>{value}{isPercent ? <small>%</small> : null}</strong>
+                    </div>
+                  ))}
                 </div>
                 <div className="outcome-mix">
                   <div className="outcome-bar" role="img" aria-label={outcomeSummary.map(({ label, percentage }) => `${label}: ${percentage}%`).join(', ')}>
-                    {outcomeSummary.filter(({ count }) => count > 0).map(({ label, className, percentage }) => (
-                      <span key={label} className={`outcome-segment ${className}`} style={{ width: `${percentage}%` }} />
+                    {outcomeSummary.filter(({ count }) => count > 0).map(({ label, className, percentage }, index) => (
+                      <span key={label} className={`outcome-segment ${className}`} style={{ width: `${percentage}%`, animationDelay: `${index * 90}ms` }} />
                     ))}
                   </div>
                   <div className="outcome-legend">
@@ -301,7 +321,7 @@ function App() {
                   </div>
                 </div>
               </section>
-              {renderDirectory('Latest graduates', 'A quick look at the newest records.', 4)}
+              <div className={showIntro ? 'intro-waiting' : 'intro-revealed'}>{renderDirectory('Latest graduates', 'A quick look at the newest records.', 4)}</div>
             </>
           )}
 
@@ -321,8 +341,8 @@ function App() {
                 </div>
                 <div className="outcomes-analysis-grid">
                   <div className="outcome-breakdown">
-                    {outcomeSummary.map(({ label, count, className, percentage }) => (
-                      <button key={label} className={`outcome-row ${statusFilter === label ? 'selected' : ''}`} aria-pressed={statusFilter === label} onClick={() => setStatusFilter(statusFilter === label ? 'All outcomes' : label)}>
+                    {outcomeSummary.map(({ label, count, className, percentage }, index) => (
+                      <button key={label} className={`outcome-row ${statusFilter === label ? 'selected' : ''}`} aria-pressed={statusFilter === label} onClick={() => setStatusFilter(statusFilter === label ? 'All outcomes' : label)} style={{ animationDelay: `${index * 60}ms` }}>
                         <span className={`outcome-key ${className}`} />
                         <span className="outcome-row-label">{label}</span>
                         <span className="outcome-row-track"><i className={className} style={{ width: `${percentage}%` }} /></span>
@@ -334,8 +354,8 @@ function App() {
                   <div className="program-outcomes">
                     <h3>By program</h3>
                     <p>Employment within each field</p>
-                    {programOutcomes.length ? programOutcomes.map(({ name, total, employed }) => (
-                      <div className="program-outcome-row" key={name}>
+                    {programOutcomes.length ? programOutcomes.map(({ name, total, employed }, index) => (
+                      <div className="program-outcome-row reveal-up" key={name} style={{ animationDelay: `${index * 60}ms` }}>
                         <div className="program-outcome-heading"><strong>{name}</strong><span>{employed} of {total}</span></div>
                         <div className="program-outcome-track" role="img" aria-label={`${name}: ${total ? Math.round((employed / total) * 100) : 0}% employed`}><i style={{ width: `${total ? Math.round((employed / total) * 100) : 0}%` }} /></div>
                       </div>
@@ -376,7 +396,8 @@ function App() {
       </main>
       {modalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false) }}><section className="graduate-modal" role="dialog" aria-modal="true" aria-labelledby="graduate-modal-title"><div className="modal-header"><div><span className="modal-icon"><GraduationCap size={19} /></span><h2 id="graduate-modal-title">{editing ? 'Edit graduate' : 'Add a graduate'}</h2><p>Keep their next chapter in view.</p></div><button className="icon-button modal-close" aria-label="Close dialog" onClick={() => setModalOpen(false)}><X size={19} /></button></div><form onSubmit={saveGraduate}><div className="form-grid"><label className="form-field form-full"><span>Full name</span><input name="name" required defaultValue={editing?.name ?? ''} placeholder="e.g. Alex Morgan" /></label><label className="form-field form-full"><span>Email address</span><input name="email" type="email" required defaultValue={editing?.email ?? ''} placeholder="alex@email.edu" /></label><label className="form-field form-full"><span>Program</span><input name="program" required defaultValue={editing?.program ?? ''} placeholder="e.g. Computer Science" /></label><label className="form-field"><span>Graduation year</span><input name="year" type="number" min="1950" max="2100" required defaultValue={editing?.year ?? currentYear} /></label><label className="form-field"><span>Current outcome</span><select name="status" defaultValue={editing?.status ?? 'Employed'}><option>Employed</option><option>Further study</option><option>Seeking work</option><option>Unreported</option></select></label><label className="form-field"><span>Role / course</span><input name="role" defaultValue={editing?.role === '-' ? '' : editing?.role ?? ''} placeholder="e.g. Product Designer" /></label><label className="form-field"><span>Employer / institution</span><input name="employer" defaultValue={editing?.employer === '-' ? '' : editing?.employer ?? ''} placeholder="Organization name" /></label><label className="form-field form-full"><span>Location</span><input name="location" defaultValue={editing?.location === '-' ? '' : editing?.location ?? ''} placeholder="City, State" /></label></div><div className="modal-actions"><button type="button" className="button button-subtle" onClick={() => setModalOpen(false)}>Cancel</button><button type="submit" className="button button-primary">{editing ? 'Save changes' : 'Add graduate'} <ArrowRight size={16} /></button></div></form></section></div>}
       {toast && <div className="toast-message" role="status"><span className="toast-check">✓</span>{toast}</div>}
-    </div>
+      </div>
+    </>
   )
 }
 
