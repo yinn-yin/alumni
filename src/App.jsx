@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, ArrowDownToLine, ArrowRight, Bell, BriefcaseBusiness, ChevronDown, CircleHelp, GraduationCap, LayoutDashboard, MoreHorizontal, Plus, Search, SlidersHorizontal, Sparkles, UsersRound, X } from 'lucide-react'
+import { Activity, ArrowDownToLine, ArrowRight, Bell, BriefcaseBusiness, ChartNoAxesColumnIncreasing, ChevronDown, FileSpreadsheet, GraduationCap, LayoutDashboard, MoreHorizontal, Plus, Search, SlidersHorizontal, UsersRound, X } from 'lucide-react'
 import './App.css'
 
 const starterGraduates = [
@@ -19,6 +19,36 @@ const navItems = [
   { label: 'Outcomes', icon: BriefcaseBusiness },
   { label: 'Reports', icon: Activity },
 ]
+
+const currentDate = new Intl.DateTimeFormat('en', { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date())
+const currentYear = new Date().getFullYear()
+
+function getOutcomeSummary(counts, total) {
+  const categories = [
+    { label: 'Employed', count: counts.employed, className: 'employed' },
+    { label: 'Further study', count: counts.furtherStudy, className: 'further-study' },
+    { label: 'Seeking work', count: counts.seekingWork, className: 'seeking-work' },
+    { label: 'Unreported', count: counts.unreported, className: 'unreported' },
+  ]
+  const shares = categories.map((category) => {
+    const exact = total ? (category.count / total) * 100 : 0
+    return { ...category, exact, percentage: Math.floor(exact) }
+  })
+  const remainingPoints = total ? 100 - shares.reduce((sum, category) => sum + category.percentage, 0) : 0
+  const roundedUp = new Set(
+    [...shares]
+      .sort((a, b) => (b.exact - b.percentage) - (a.exact - a.percentage))
+      .slice(0, remainingPoints)
+      .map((category) => category.label),
+  )
+
+  return shares.map(({ label, count, className, percentage }) => ({
+    label,
+    count,
+    className,
+    percentage: percentage + Number(roundedUp.has(label)),
+  }))
+}
 
 function getStoredGraduates() {
   try {
@@ -51,13 +81,26 @@ function App() {
     return (!query || searchable.includes(query)) && (yearFilter === 'All years' || String(graduate.year) === yearFilter) && (statusFilter === 'All outcomes' || graduate.status === statusFilter)
   }), [graduates, search, statusFilter, yearFilter])
 
-  const employed = graduates.filter((graduate) => graduate.status === 'Employed').length
-  const employedRate = graduates.length ? Math.round((employed / graduates.length) * 100) : 0
+  const outcomeCounts = {
+    employed: graduates.filter((graduate) => graduate.status === 'Employed').length,
+    furtherStudy: graduates.filter((graduate) => graduate.status === 'Further study').length,
+    seekingWork: graduates.filter((graduate) => graduate.status === 'Seeking work').length,
+    unreported: graduates.filter((graduate) => graduate.status === 'Unreported').length,
+  }
+  const outcomeSummary = getOutcomeSummary(outcomeCounts, graduates.length)
+  const outcomeRate = (count) => graduates.length ? Math.round((count / graduates.length) * 100) : 0
+  const programOutcomes = [...graduates.reduce((programs, graduate) => {
+    const program = programs.get(graduate.program) ?? { name: graduate.program, total: 0, employed: 0 }
+    program.total += 1
+    if (graduate.status === 'Employed') program.employed += 1
+    programs.set(graduate.program, program)
+    return programs
+  }, new Map()).values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
   const pageHeading = {
     Overview: ['Alumni overview', 'A clearer picture of where your graduates are headed.'],
-    Graduates: ['Graduate directory', 'Your graduate records, all in one place.'],
-    Outcomes: ['Graduate outcomes', 'See how your alumni are building their next chapter.'],
-    Reports: ['Reports and exports', 'Take your graduate data wherever it needs to go.'],
+    Graduates: ['Graduate directory', 'Find a record, update a detail, or add someone new.'],
+    Outcomes: ['Graduate outcomes', 'Explore first destinations across your graduating classes.'],
+    Reports: ['Reports and exports', 'Choose the right view of your alumni data to share.'],
   }[activePage]
 
   function openForm(graduate = null) {
@@ -80,16 +123,104 @@ function App() {
     setToast(editing ? 'Graduate record updated' : 'Graduate added to your records')
   }
 
-  function exportCsv() {
+  function exportCsv(records = filtered, filename = 'alumni-graduate-records.csv', message = 'Graduate records exported') {
     const columns = ['Name', 'Email', 'Program', 'Graduation year', 'Outcome', 'Role', 'Employer', 'Location']
-    const values = filtered.map(({ name, email, program, year, status, role, employer, location }) => [name, email, program, year, status, role, employer, location])
+    const values = records.map(({ name, email, program, year, status, role, employer, location }) => [name, email, program, year, status, role, employer, location])
     const csv = [columns, ...values].map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\n')
     const link = document.createElement('a')
     link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
-    link.download = 'alumni-graduate-records.csv'
+    link.download = filename
     link.click()
     URL.revokeObjectURL(link.href)
-    setToast('Graduate records exported')
+    setToast(message)
+  }
+
+  function clearFilters() {
+    setYearFilter('All years')
+    setStatusFilter('All outcomes')
+    setSearch('')
+  }
+
+  function exportOutcomesCsv() {
+    const columns = ['Graduation year', 'Graduates', 'Employed', 'Further study', 'Seeking work', 'Unreported', 'Employed rate']
+    const years = [...new Set(graduates.map(({ year }) => year))].sort((a, b) => b - a)
+    const values = years.map((year) => {
+      const cohort = graduates.filter((graduate) => graduate.year === year)
+      const employed = cohort.filter((graduate) => graduate.status === 'Employed').length
+      return [
+        year,
+        cohort.length,
+        employed,
+        cohort.filter((graduate) => graduate.status === 'Further study').length,
+        cohort.filter((graduate) => graduate.status === 'Seeking work').length,
+        cohort.filter((graduate) => graduate.status === 'Unreported').length,
+        `${Math.round((employed / cohort.length) * 100)}%`,
+      ]
+    })
+    const csv = [columns, ...values].map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\n')
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
+    link.download = 'alumni-outcomes-by-class.csv'
+    link.click()
+    URL.revokeObjectURL(link.href)
+    setToast('Class outcomes exported')
+  }
+
+  function renderDirectory(title, description, limit = null) {
+    const rows = limit ? filtered.slice(0, limit) : filtered
+    const firstRow = rows.length ? 1 : 0
+    const lastRow = rows.length
+
+    return (
+      <section className={`directory-panel ${limit ? 'directory-preview' : 'directory-full'}`}>
+        <div className="directory-heading">
+          <div>
+            <div className="directory-title"><h2>{title}</h2><span className="record-count">{filtered.length}</span></div>
+            <p>{description}</p>
+          </div>
+          {limit && <button className="text-button" onClick={() => setActivePage('Graduates')}>All graduates <ArrowRight size={15} /></button>}
+        </div>
+        <div className="table-toolbar">
+          <div className="table-filters">
+            <label className="filter-search"><Search size={15} /><input aria-label="Search graduate records" placeholder="Search by name, program, employer..." value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+            <label className="filter-select"><select aria-label="Filter by graduation year" value={yearFilter} onChange={(event) => setYearFilter(event.target.value)}><option>All years</option>{[...new Set(graduates.map(({ year }) => year))].sort((a, b) => b - a).map((year) => <option key={year}>{year}</option>)}</select><ChevronDown size={14} /></label>
+            <label className="filter-select"><select aria-label="Filter by outcome" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>All outcomes</option><option>Employed</option><option>Further study</option><option>Seeking work</option><option>Unreported</option></select><ChevronDown size={14} /></label>
+          </div>
+          <button className="filter-button" onClick={clearFilters} aria-label="Clear all filters"><SlidersHorizontal size={16} /><span>Clear</span></button>
+        </div>
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>GRADUATE</th><th>PROGRAM</th><th>CLASS</th><th>OUTCOME</th><th>ROLE &amp; ORGANIZATION</th><th /></tr></thead>
+            <tbody>
+              {rows.map((graduate) => (
+                <tr key={graduate.id}>
+                  <td><div className="graduate-cell"><span className={`graduate-avatar avatar-${graduate.color}`}>{graduate.name.split(' ').map((part) => part[0]).join('')}</span><span className="graduate-info"><strong>{graduate.name}</strong><small>{graduate.email}</small></span></div></td>
+                  <td><span className="program-name">{graduate.program}</span></td>
+                  <td><span className="class-year">{graduate.year}</span></td>
+                  <td><span className={`outcome-pill ${graduate.status.toLowerCase().replace(' ', '-')}`}><i />{graduate.status}</span></td>
+                  <td><span className="job-title">{graduate.role}</span><small className="employer-name">{graduate.employer}</small></td>
+                  <td><button className="row-action" aria-label={`Edit ${graduate.name}`} onClick={() => openForm(graduate)}><MoreHorizontal size={19} /></button></td>
+                </tr>
+              ))}
+              {rows.length === 0 && (
+                <tr>
+                  <td className="empty-state" colSpan="6">
+                    <Search size={19} />
+                    <strong>{activePage === 'Outcomes' && statusFilter !== 'All outcomes' ? 'No graduates have this outcome yet' : 'No graduates found'}</strong>
+                    <span>{activePage === 'Outcomes' && statusFilter !== 'All outcomes' ? 'Choose another destination to see its records.' : 'Try adjusting your search or filters.'}</span>
+                    {activePage === 'Outcomes' && statusFilter !== 'All outcomes' && <button className="text-button empty-action" onClick={() => setStatusFilter('All outcomes')}>Show all outcomes</button>}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="table-footer">
+          <span>Showing <strong>{firstRow}-{lastRow}</strong> of <strong>{filtered.length}</strong> matching graduates</span>
+          {!limit && <button className="button button-subtle" onClick={() => exportCsv()}><ArrowDownToLine size={15} /> Export CSV</button>}
+        </div>
+      </section>
+    )
   }
 
   return (
@@ -115,11 +246,6 @@ function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="help-card">
-            <div className="help-icon"><CircleHelp size={17} /></div>
-            <div><strong>Need a hand?</strong><span>Visit the help center</span></div>
-            <ArrowRight size={15} />
-          </div>
           <button className="profile-button">
             <span className="profile-avatar">MC</span>
             <span className="profile-copy"><strong>Maya Chen</strong><small>Administrator</small></span>
@@ -136,36 +262,119 @@ function App() {
             <label className="global-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search graduates..." /><kbd>⌘ K</kbd></label>
             <button className="icon-button notification-button" aria-label="Notifications"><Bell size={18} /><span /></button>
             <span className="topbar-divider" />
-            <span className="topbar-date">Friday, November 6</span>
+            <span className="topbar-date">{currentDate}</span>
           </div>
         </header>
 
         <div className="page-content">
           <section className="page-heading">
-            <div><div className="eyebrow"><Sparkles size={13} /> YOUR ALUMNI, IN FOCUS</div><h1>{pageHeading[0]}</h1><p>{pageHeading[1]}</p></div>
-            <button className="button button-primary" onClick={() => openForm()}><Plus size={17} /> Add graduate</button>
+            <div className="page-heading-copy"><h1>{pageHeading[0]}</h1><p>{pageHeading[1]}</p></div>
+            {activePage === 'Overview' || activePage === 'Graduates'
+              ? <button className="button button-primary" onClick={() => openForm()}><Plus size={17} /> Add graduate</button>
+              : activePage === 'Outcomes'
+                ? <button className="button button-primary" onClick={() => setActivePage('Graduates')}>Browse graduates <ArrowRight size={16} /></button>
+                : null}
           </section>
-          <section className="stats-grid" aria-label="Graduate outcomes summary">
-            <article className="stat-card stat-card-primary"><div className="stat-top"><span>Total graduates</span><span className="stat-icon"><UsersRound size={17} /></span></div><div className="stat-value">{graduates.length.toLocaleString()}</div><div className="stat-foot"><span className="trend-up">+12.8%</span><span>vs. last year</span></div><div className="stat-sparkline"><svg viewBox="0 0 170 34" preserveAspectRatio="none" aria-hidden="true"><path d="M0 29 C16 27 15 18 31 21 S48 26 61 17 S83 23 98 12 S117 18 130 10 S150 16 170 3" /></svg></div></article>
-            <article className="stat-card"><div className="stat-top"><span>Employed</span><span className="stat-icon icon-mint"><BriefcaseBusiness size={17} /></span></div><div className="stat-value">{employedRate}<small>%</small></div><div className="stat-foot"><span className="trend-up">+4.2%</span><span>placement rate</span></div><div className="progress-track"><span style={{ width: `${employedRate}%` }} /></div></article>
-            <article className="stat-card"><div className="stat-top"><span>Further study</span><span className="stat-icon icon-gold"><GraduationCap size={18} /></span></div><div className="stat-value">{graduates.filter((item) => item.status === 'Further study').length}<small className="stat-suffix">graduates</small></div><div className="stat-foot"><span className="neutral-change">Across 3 programs</span></div><div className="mini-bars" aria-hidden="true">{[25, 45, 37, 58, 43, 69, 54, 75, 62, 83, 71, 94].map((height, index) => <i key={index} style={{ height: `${height}%` }} />)}</div></article>
-            <article className="stat-card"><div className="stat-top"><span>Seeking work</span><span className="stat-icon icon-coral"><Activity size={17} /></span></div><div className="stat-value">{graduates.filter((item) => item.status === 'Seeking work').length}<small className="stat-suffix">graduates</small></div><div className="stat-foot"><span className="trend-down">Needs follow-up</span></div><div className="stat-note"><span className="status-dot" /> Reach out to your graduates</div></article>
-          </section>
+          {activePage === 'Overview' && (
+            <>
+              <section className="outcomes-overview overview-dashboard" aria-label="Graduate outcomes summary">
+                <div className="overview-heading">
+                  <div><h2>First destinations</h2><p>Outcomes recorded for {graduates.length} {graduates.length === 1 ? 'graduate' : 'graduates'}.</p></div>
+                  <UsersRound size={19} aria-hidden="true" />
+                </div>
+                <div className="summary-stats">
+                  <div className="summary-stat"><span>Graduates tracked</span><strong>{graduates.length.toLocaleString()}</strong></div>
+                  <div className="summary-stat"><span>Employed</span><strong>{outcomeRate(outcomeCounts.employed)}<small>%</small></strong></div>
+                  <div className="summary-stat"><span>Further study</span><strong>{outcomeCounts.furtherStudy}</strong></div>
+                  <div className="summary-stat"><span>Seeking work</span><strong>{outcomeCounts.seekingWork}</strong></div>
+                </div>
+                <div className="outcome-mix">
+                  <div className="outcome-bar" role="img" aria-label={outcomeSummary.map(({ label, percentage }) => `${label}: ${percentage}%`).join(', ')}>
+                    {outcomeSummary.filter(({ count }) => count > 0).map(({ label, className, percentage }) => (
+                      <span key={label} className={`outcome-segment ${className}`} style={{ width: `${percentage}%` }} />
+                    ))}
+                  </div>
+                  <div className="outcome-legend">
+                    {outcomeSummary.map(({ label, className, percentage }) => (
+                      <div className="outcome-legend-item" key={label}><span className={`outcome-key ${className}`} /><span>{label}</span><strong>{percentage}%</strong></div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+              {renderDirectory('Latest graduates', 'A quick look at the newest records.', 4)}
+            </>
+          )}
 
-          <section className="insights-grid">
-            <article className="panel outcomes-panel"><div className="panel-heading"><div><h2>Graduate outcomes</h2><p>First destination by graduating class</p></div><button className="select-button">Last 6 years <ChevronDown size={14} /></button></div><div className="chart-legend"><span><i className="legend-dot legend-green" />Employed</span><span><i className="legend-dot legend-yellow" />Further study</span><span><i className="legend-dot legend-gray" />Other</span></div><div className="chart-wrap"><div className="chart-y-labels"><span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span></div><div className="chart-main"><div className="chart-gridlines"><i /><i /><i /><i /><i /></div><svg className="outcome-chart" viewBox="0 0 600 180" preserveAspectRatio="none" role="img" aria-label="Employment outcome trend improving from 2019 to 2024"><defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#53aa83" stopOpacity=".22" /><stop offset="100%" stopColor="#53aa83" stopOpacity="0" /></linearGradient></defs><path className="chart-area" d="M0 130 C37 123 48 110 86 115 S134 95 171 99 S224 74 258 82 S308 68 342 62 S390 76 429 52 S482 40 514 43 S561 20 600 14 L600 180 L0 180 Z" /><path className="chart-line" d="M0 130 C37 123 48 110 86 115 S134 95 171 99 S224 74 258 82 S308 68 342 62 S390 76 429 52 S482 40 514 43 S561 20 600 14" /><circle cx="600" cy="14" r="4.5" /></svg><div className="chart-x-labels"><span>2019</span><span>2020</span><span>2021</span><span>2022</span><span>2023</span><span>2024</span></div></div></div></article>
-            <article className="panel cohorts-panel"><div className="panel-heading"><div><h2>By graduating class</h2><p>Employment rate over time</p></div><button className="icon-button more-button" aria-label="More cohort options"><MoreHorizontal size={19} /></button></div><div className="cohort-chart" aria-label="Employment rates by graduating cohort">{[42, 51, 47, 64, 59, 73, 68, 81, 76, 88, 84, 96].map((value, index) => <div className="cohort-column" key={index}><span className="cohort-value">{value}%</span><div className="cohort-track"><i style={{ height: `${value}%` }} /></div><span className="cohort-year">{2019 + index % 6}</span></div>)}</div><div className="cohort-summary"><span className="cohort-summary-icon"><Sparkles size={16} /></span><span><strong>Most common destination</strong><small>Technology and digital services</small></span><span className="cohort-arrow"><ArrowRight size={16} /></span></div></article>
-          </section>
+          {activePage === 'Graduates' && (
+            <section className="graduate-index">
+              <div className="index-summary"><UsersRound size={18} /><span><strong>{graduates.length}</strong> graduate records</span><span className="index-summary-note">Search and filter the full directory</span></div>
+              {renderDirectory('All graduates', 'Search, filter, and update your alumni records.')}
+            </section>
+          )}
 
-          <section className="panel directory-panel"><div className="directory-heading"><div><div className="directory-title"><h2>{activePage === 'Outcomes' ? 'Outcome records' : 'Recent graduates'}</h2><span className="record-count">{filtered.length}</span></div><p>Keep track of every graduate&apos;s next step.</p></div><button className="text-button" onClick={() => setActivePage('Graduates')}>View all graduates <ArrowRight size={15} /></button></div>
-            <div className="table-toolbar"><div className="table-filters"><label className="filter-search"><Search size={15} /><input aria-label="Search graduate records" placeholder="Search by name, program, employer..." value={search} onChange={(event) => setSearch(event.target.value)} /></label><label className="filter-select"><select aria-label="Filter by graduation year" value={yearFilter} onChange={(event) => setYearFilter(event.target.value)}><option>All years</option>{[2024, 2023, 2022, 2021].map((year) => <option key={year}>{year}</option>)}</select><ChevronDown size={14} /></label><label className="filter-select"><select aria-label="Filter by outcome" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>All outcomes</option><option>Employed</option><option>Further study</option><option>Seeking work</option></select><ChevronDown size={14} /></label></div><button className="filter-button" onClick={() => { setYearFilter('All years'); setStatusFilter('All outcomes'); setSearch('') }} aria-label="Clear all filters"><SlidersHorizontal size={16} /><span>Clear</span></button></div>
-            <div className="table-scroll"><table><thead><tr><th>GRADUATE</th><th>PROGRAM</th><th>CLASS</th><th>OUTCOME</th><th>ROLE &amp; ORGANIZATION</th><th /></tr></thead><tbody>{filtered.map((graduate) => <tr key={graduate.id}><td><div className="graduate-cell"><span className={`graduate-avatar avatar-${graduate.color}`}>{graduate.name.split(' ').map((part) => part[0]).join('')}</span><span className="graduate-info"><strong>{graduate.name}</strong><small>{graduate.email}</small></span></div></td><td><span className="program-name">{graduate.program}</span></td><td><span className="class-year">{graduate.year}</span></td><td><span className={`outcome-pill ${graduate.status.toLowerCase().replace(' ', '-')}`}><i />{graduate.status}</span></td><td><span className="job-title">{graduate.role}</span><small className="employer-name">{graduate.employer}</small></td><td><button className="row-action" aria-label={`Edit ${graduate.name}`} onClick={() => openForm(graduate)}><MoreHorizontal size={19} /></button></td></tr>)}{filtered.length === 0 && <tr><td className="empty-state" colSpan="6"><Search size={19} /><strong>No graduates found</strong><span>Try adjusting your search or filters.</span></td></tr>}</tbody></table></div>
-            <div className="table-footer"><span>Showing <strong>{filtered.length ? 1 : 0}-{filtered.length}</strong> of <strong>{graduates.length}</strong> graduates</span><button className="button button-subtle" onClick={exportCsv}><ArrowDownToLine size={15} /> Export CSV</button></div>
-          </section>
+          {activePage === 'Outcomes' && (
+            <>
+              <section className="outcomes-workspace" aria-label="Outcome analysis">
+                <div className="outcomes-workspace-heading">
+                  <div><h2>Where graduates land</h2><p>Choose an outcome to see the records behind it.</p></div>
+                  <button className={`outcome-reset ${statusFilter === 'All outcomes' ? 'selected' : ''}`} onClick={() => setStatusFilter('All outcomes')}>All outcomes <span>{graduates.length}</span></button>
+                </div>
+                <div className="outcomes-analysis-grid">
+                  <div className="outcome-breakdown">
+                    {outcomeSummary.map(({ label, count, className, percentage }) => (
+                      <button key={label} className={`outcome-row ${statusFilter === label ? 'selected' : ''}`} aria-pressed={statusFilter === label} onClick={() => setStatusFilter(statusFilter === label ? 'All outcomes' : label)}>
+                        <span className={`outcome-key ${className}`} />
+                        <span className="outcome-row-label">{label}</span>
+                        <span className="outcome-row-track"><i className={className} style={{ width: `${percentage}%` }} /></span>
+                        <strong>{count}</strong>
+                        <small>{percentage}%</small>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="program-outcomes">
+                    <h3>By program</h3>
+                    <p>Employment within each field</p>
+                    {programOutcomes.length ? programOutcomes.map(({ name, total, employed }) => (
+                      <div className="program-outcome-row" key={name}>
+                        <div className="program-outcome-heading"><strong>{name}</strong><span>{employed} of {total}</span></div>
+                        <div className="program-outcome-track" role="img" aria-label={`${name}: ${total ? Math.round((employed / total) * 100) : 0}% employed`}><i style={{ width: `${total ? Math.round((employed / total) * 100) : 0}%` }} /></div>
+                      </div>
+                    )) : <p className="program-empty">Add graduate records to see outcomes by program.</p>}
+                  </div>
+                </div>
+              </section>
+              {renderDirectory('Outcome records', statusFilter === 'All outcomes' ? 'Review first destinations across every graduate.' : `${statusFilter} records. Select an outcome above to change this view.`)}
+            </>
+          )}
+
+          {activePage === 'Reports' && (
+            <section className="reports-workspace">
+              <div className="reports-overview">
+                <div className="reports-overview-copy">
+                  <span className="reports-icon"><ChartNoAxesColumnIncreasing size={21} /></span>
+                  <div><h2>Your alumni data, ready to share</h2><p>Exports are generated from the latest records saved in this browser.</p></div>
+                </div>
+                <div className="reports-record-count"><strong>{graduates.length.toLocaleString()}</strong><span>records included</span></div>
+              </div>
+              <div className="report-list">
+                <article className="report-option">
+                  <div className="report-option-icon"><FileSpreadsheet size={19} /></div>
+                  <div className="report-option-copy"><h3>Graduate register</h3><p>Every graduate, with contact, program, outcome, and employment details.</p><span className="report-meta">CSV file, {graduates.length} rows</span></div>
+                  <button className="button button-subtle" onClick={() => exportCsv(graduates, 'alumni-graduate-register.csv', 'Graduate register exported')}><ArrowDownToLine size={15} /> Export register</button>
+                </article>
+                <article className="report-option">
+                  <div className="report-option-icon report-outcomes-icon"><BriefcaseBusiness size={19} /></div>
+                  <div className="report-option-copy"><h3>Class outcomes</h3><p>Employment and study destinations grouped by graduation year.</p><span className="report-meta">CSV file, {[...new Set(graduates.map(({ year }) => year))].length} classes</span></div>
+                  <button className="button button-subtle" onClick={exportOutcomesCsv}><ArrowDownToLine size={15} /> Export outcomes</button>
+                </article>
+              </div>
+              <p className="reports-note">CSV files open in spreadsheet apps such as Excel and Google Sheets.</p>
+            </section>
+          )}
           <footer className="page-footer"><span>Northstar University alumni relations</span><span>Built for the next chapter</span></footer>
         </div>
       </main>
-      {modalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false) }}><section className="graduate-modal" role="dialog" aria-modal="true" aria-labelledby="graduate-modal-title"><div className="modal-header"><div><span className="modal-icon"><GraduationCap size={19} /></span><h2 id="graduate-modal-title">{editing ? 'Edit graduate' : 'Add a graduate'}</h2><p>Keep their next chapter in view.</p></div><button className="icon-button modal-close" aria-label="Close dialog" onClick={() => setModalOpen(false)}><X size={19} /></button></div><form onSubmit={saveGraduate}><div className="form-grid"><label className="form-field form-full"><span>Full name</span><input name="name" required defaultValue={editing?.name ?? ''} placeholder="e.g. Alex Morgan" /></label><label className="form-field form-full"><span>Email address</span><input name="email" type="email" required defaultValue={editing?.email ?? ''} placeholder="alex@email.edu" /></label><label className="form-field form-full"><span>Program</span><input name="program" required defaultValue={editing?.program ?? ''} placeholder="e.g. Computer Science" /></label><label className="form-field"><span>Graduation year</span><input name="year" type="number" min="1950" max="2100" required defaultValue={editing?.year ?? new Date().getFullYear()} /></label><label className="form-field"><span>Current outcome</span><select name="status" defaultValue={editing?.status ?? 'Employed'}><option>Employed</option><option>Further study</option><option>Seeking work</option><option>Unreported</option></select></label><label className="form-field"><span>Role / course</span><input name="role" defaultValue={editing?.role === '-' ? '' : editing?.role ?? ''} placeholder="e.g. Product Designer" /></label><label className="form-field"><span>Employer / institution</span><input name="employer" defaultValue={editing?.employer === '-' ? '' : editing?.employer ?? ''} placeholder="Organization name" /></label><label className="form-field form-full"><span>Location</span><input name="location" defaultValue={editing?.location === '-' ? '' : editing?.location ?? ''} placeholder="City, State" /></label></div><div className="modal-actions"><button type="button" className="button button-subtle" onClick={() => setModalOpen(false)}>Cancel</button><button type="submit" className="button button-primary">{editing ? 'Save changes' : 'Add graduate'} <ArrowRight size={16} /></button></div></form></section></div>}
+      {modalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false) }}><section className="graduate-modal" role="dialog" aria-modal="true" aria-labelledby="graduate-modal-title"><div className="modal-header"><div><span className="modal-icon"><GraduationCap size={19} /></span><h2 id="graduate-modal-title">{editing ? 'Edit graduate' : 'Add a graduate'}</h2><p>Keep their next chapter in view.</p></div><button className="icon-button modal-close" aria-label="Close dialog" onClick={() => setModalOpen(false)}><X size={19} /></button></div><form onSubmit={saveGraduate}><div className="form-grid"><label className="form-field form-full"><span>Full name</span><input name="name" required defaultValue={editing?.name ?? ''} placeholder="e.g. Alex Morgan" /></label><label className="form-field form-full"><span>Email address</span><input name="email" type="email" required defaultValue={editing?.email ?? ''} placeholder="alex@email.edu" /></label><label className="form-field form-full"><span>Program</span><input name="program" required defaultValue={editing?.program ?? ''} placeholder="e.g. Computer Science" /></label><label className="form-field"><span>Graduation year</span><input name="year" type="number" min="1950" max="2100" required defaultValue={editing?.year ?? currentYear} /></label><label className="form-field"><span>Current outcome</span><select name="status" defaultValue={editing?.status ?? 'Employed'}><option>Employed</option><option>Further study</option><option>Seeking work</option><option>Unreported</option></select></label><label className="form-field"><span>Role / course</span><input name="role" defaultValue={editing?.role === '-' ? '' : editing?.role ?? ''} placeholder="e.g. Product Designer" /></label><label className="form-field"><span>Employer / institution</span><input name="employer" defaultValue={editing?.employer === '-' ? '' : editing?.employer ?? ''} placeholder="Organization name" /></label><label className="form-field form-full"><span>Location</span><input name="location" defaultValue={editing?.location === '-' ? '' : editing?.location ?? ''} placeholder="City, State" /></label></div><div className="modal-actions"><button type="button" className="button button-subtle" onClick={() => setModalOpen(false)}>Cancel</button><button type="submit" className="button button-primary">{editing ? 'Save changes' : 'Add graduate'} <ArrowRight size={16} /></button></div></form></section></div>}
       {toast && <div className="toast-message" role="status"><span className="toast-check">✓</span>{toast}</div>}
     </div>
   )
