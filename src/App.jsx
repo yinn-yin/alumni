@@ -2,16 +2,46 @@ import { useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowDownToLine, ArrowRight, Bell, BriefcaseBusiness, ChartNoAxesColumnIncreasing, ChevronDown, FileSpreadsheet, GraduationCap, LayoutDashboard, MoreHorizontal, Plus, Search, SlidersHorizontal, UsersRound, X } from 'lucide-react'
 import './App.css'
 
-const starterGraduates = [
-  { id: 1, name: 'Amara Johnson', email: 'amara.johnson@email.edu', program: 'Computer Science', year: 2024, status: 'Employed', role: 'Product Designer', employer: 'Stripe', location: 'New York, NY', color: 'coral' },
-  { id: 2, name: 'Ethan Chen', email: 'ethan.chen@email.edu', program: 'Business Analytics', year: 2024, status: 'Employed', role: 'Data Analyst', employer: 'Deloitte', location: 'Chicago, IL', color: 'blue' },
-  { id: 3, name: 'Sofia Martinez', email: 'sofia.martinez@email.edu', program: 'Public Health', year: 2023, status: 'Further study', role: 'MPH Candidate', employer: 'Johns Hopkins', location: 'Baltimore, MD', color: 'yellow' },
-  { id: 4, name: 'Noah Williams', email: 'noah.williams@email.edu', program: 'Mechanical Engineering', year: 2024, status: 'Seeking work', role: '-', employer: '-', location: 'Austin, TX', color: 'green' },
-  { id: 5, name: 'Priya Patel', email: 'priya.patel@email.edu', program: 'Economics', year: 2022, status: 'Employed', role: 'Financial Associate', employer: 'JPMorgan Chase', location: 'Boston, MA', color: 'pink' },
-  { id: 6, name: 'Lucas Brown', email: 'lucas.brown@email.edu', program: 'Graphic Design', year: 2023, status: 'Employed', role: 'Visual Designer', employer: 'Figma', location: 'San Francisco, CA', color: 'purple' },
-  { id: 7, name: 'Zara Okafor', email: 'zara.okafor@email.edu', program: 'Environmental Science', year: 2021, status: 'Employed', role: 'Research Associate', employer: 'The Nature Conservancy', location: 'Portland, OR', color: 'orange' },
-  { id: 8, name: 'Oliver Kim', email: 'oliver.kim@email.edu', program: 'Computer Science', year: 2023, status: 'Seeking work', role: '-', employer: '-', location: 'Seattle, WA', color: 'teal' },
+const graduateNames = [
+  'Al-Phyne Albert Resbicios',
+  'Alexandra Reblora',
+  'Arvin Garcia',
+  'Brigette Alindayu',
+  'Cliff Acer Del Rosario',
+  'Gerel Peralta',
+  'Jampol Martinez',
+  'John Carlo Agbayani',
+  'Kathleen Garan',
+  'Kimberly Luzano',
+  'Knole Anne C. Gungon',
+  'Marc Sherwin Goronia',
+  'Marko Marzo',
+  'Marvin Pitacio',
+  'Regine Mata',
+  'Ruben Pencaíla',
+  'Sean Antonio',
+  'Steven Villota',
+  'Vincent Benitez',
 ]
+const avatarColors = ['coral', 'blue', 'yellow', 'green', 'pink', 'purple', 'orange', 'teal']
+const graduateProgram = 'Bachelor of Science in Information Technology (BSIT)'
+const graduationYear = 2025
+const starterGraduates = graduateNames.map((name, index) => {
+  const emailName = name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, '')
+  return {
+    id: index + 1,
+    name,
+    email: `${emailName}.${String(index + 1).padStart(2, '0')}@example.com`,
+    program: graduateProgram,
+    year: graduationYear,
+    status: 'Unreported',
+    role: '-',
+    employer: '-',
+    location: '-',
+    color: avatarColors[index % avatarColors.length],
+  }
+})
+const graduateStorageVersion = '3'
 
 const navItems = [
   { label: 'Overview', icon: LayoutDashboard },
@@ -52,7 +82,17 @@ function getOutcomeSummary(counts, total) {
 
 function getStoredGraduates() {
   try {
-    return JSON.parse(localStorage.getItem('alumni-tracker-graduates')) || starterGraduates
+    const storedVersion = localStorage.getItem('alumni-tracker-data-version')
+    const storedGraduates = JSON.parse(localStorage.getItem('alumni-tracker-graduates'))
+    if (storedVersion !== graduateStorageVersion) {
+      const graduates = Array.isArray(storedGraduates)
+        ? storedGraduates.map((graduate) => ({ ...graduate, program: graduateProgram, year: graduationYear }))
+        : starterGraduates
+      localStorage.setItem('alumni-tracker-graduates', JSON.stringify(graduates))
+      localStorage.setItem('alumni-tracker-data-version', graduateStorageVersion)
+      return graduates
+    }
+    return Array.isArray(storedGraduates) ? storedGraduates : starterGraduates
   } catch {
     return starterGraduates
   }
@@ -149,7 +189,7 @@ function App() {
 
   function exportOutcomesCsv() {
     const columns = ['Graduation year', 'Graduates', 'Employed', 'Further study', 'Seeking work', 'Unreported', 'Employed rate']
-    const years = [...new Set(graduates.map(({ year }) => year))].sort((a, b) => b - a)
+    const years = [...new Set(graduates.map(({ year }) => year).filter(Number.isFinite))].sort((a, b) => b - a)
     const values = years.map((year) => {
       const cohort = graduates.filter((graduate) => graduate.year === year)
       const employed = cohort.filter((graduate) => graduate.status === 'Employed').length
@@ -188,8 +228,8 @@ function App() {
         </div>
         <div className="table-toolbar">
           <div className="table-filters">
-            <label className="filter-search"><Search size={15} /><input aria-label="Search graduate records" placeholder="Search by name, program, employer..." value={search} onChange={(event) => setSearch(event.target.value)} /></label>
-            <label className="filter-select"><select aria-label="Filter by graduation year" value={yearFilter} onChange={(event) => setYearFilter(event.target.value)}><option>All years</option>{[...new Set(graduates.map(({ year }) => year))].sort((a, b) => b - a).map((year) => <option key={year}>{year}</option>)}</select><ChevronDown size={14} /></label>
+            <label className="filter-search"><Search size={15} /><input aria-label="Search graduate records" placeholder="Search by name or email..." value={search} onChange={(event) => setSearch(event.target.value)} /></label>
+            <label className="filter-select"><select aria-label="Filter by graduation year" value={yearFilter} onChange={(event) => setYearFilter(event.target.value)}><option>All years</option>{[...new Set(graduates.map(({ year }) => year).filter(Number.isFinite))].sort((a, b) => b - a).map((year) => <option key={year}>{year}</option>)}</select><ChevronDown size={14} /></label>
             <label className="filter-select"><select aria-label="Filter by outcome" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option>All outcomes</option><option>Employed</option><option>Further study</option><option>Seeking work</option><option>Unreported</option></select><ChevronDown size={14} /></label>
           </div>
           <button className="filter-button" onClick={clearFilters} aria-label="Clear all filters"><SlidersHorizontal size={16} /><span>Clear</span></button>
@@ -202,7 +242,7 @@ function App() {
                 <tr key={graduate.id} className="result-row" style={{ animationDelay: `${index * 35}ms` }}>
                   <td><div className="graduate-cell"><span className={`graduate-avatar avatar-${graduate.color}`}>{graduate.name.split(' ').map((part) => part[0]).join('')}</span><span className="graduate-info"><strong>{graduate.name}</strong><small>{graduate.email}</small></span></div></td>
                   <td><span className="program-name">{graduate.program}</span></td>
-                  <td><span className="class-year">{graduate.year}</span></td>
+                  <td><span className="class-year">{graduate.year ?? '—'}</span></td>
                   <td><span className={`outcome-pill ${graduate.status.toLowerCase().replace(' ', '-')}`}><i />{graduate.status}</span></td>
                   <td><span className="job-title">{graduate.role}</span><small className="employer-name">{graduate.employer}</small></td>
                   <td><button className="row-action" aria-label={`Edit ${graduate.name}`} onClick={() => openForm(graduate)}><MoreHorizontal size={19} /></button></td>
@@ -298,7 +338,7 @@ function App() {
                 <div className="summary-stats">
                   {[
                     { label: 'Graduates tracked', value: graduates.length.toLocaleString() },
-                    { label: 'Employed', value: `${outcomeRate(outcomeCounts.employed)}%`, isPercent: true },
+                    { label: 'Employed', value: outcomeRate(outcomeCounts.employed), isPercent: true },
                     { label: 'Further study', value: outcomeCounts.furtherStudy },
                     { label: 'Seeking work', value: outcomeCounts.seekingWork },
                   ].map(({ label, value, isPercent }, index) => (
@@ -384,7 +424,7 @@ function App() {
                 </article>
                 <article className="report-option">
                   <div className="report-option-icon report-outcomes-icon"><BriefcaseBusiness size={19} /></div>
-                  <div className="report-option-copy"><h3>Class outcomes</h3><p>Employment and study destinations grouped by graduation year.</p><span className="report-meta">CSV file, {[...new Set(graduates.map(({ year }) => year))].length} classes</span></div>
+                  <div className="report-option-copy"><h3>Class outcomes</h3><p>Employment and study destinations grouped by graduation year.</p><span className="report-meta">CSV file, {[...new Set(graduates.map(({ year }) => year).filter(Number.isFinite))].length} classes</span></div>
                   <button className="button button-subtle" onClick={exportOutcomesCsv}><ArrowDownToLine size={15} /> Export outcomes</button>
                 </article>
               </div>
