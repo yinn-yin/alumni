@@ -1,5 +1,30 @@
-:root{font-family:'DM Sans',sans-serif;color:#314039;background:#f4f6f3;font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;font-optical-sizing:auto;font-weight:400;--ease-out:cubic-bezier(0.23,1,0.32,1);--ease-in-out:cubic-bezier(0.77,0,0.175,1)}
-*{box-sizing:border-box}
-body{min-width:320px;min-height:100vh;margin:0;background:radial-gradient(circle at top, #f7faf7 0%, #eef4ef 38%, #f3f6f3 100%)}
-button,input,select{font:inherit}
-button{color:inherit}
+:root {
+  font-family: Inter, "Segoe UI", sans-serif;
+  color: #1d2b42;
+  background: #f4f6fa;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background: #f4f6fa;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
