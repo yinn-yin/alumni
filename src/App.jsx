@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Activity, ArrowDownToLine, ArrowRight, Bell, BriefcaseBusiness, Building2, CalendarDays, ChartNoAxesColumnIncreasing, ChevronDown, Eye, FileSpreadsheet, GraduationCap, LayoutDashboard, Mail, MoreHorizontal, Pencil, Plus, Search, Settings, ShieldCheck, SlidersHorizontal, UsersRound, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Activity, ArrowDownToLine, ArrowRight, Bell, BriefcaseBusiness, Building2, CalendarDays, ChartNoAxesColumnIncreasing, ChevronDown, Eye, FileSpreadsheet, GraduationCap, LayoutDashboard, Mail, Pencil, Plus, Search, Settings, ShieldCheck, SlidersHorizontal, UsersRound, X } from 'lucide-react'
+import { AnimatePresence, MotionConfig, motion, useReducedMotion } from 'motion/react'
 import './App.css'
 
 const graduateNames = [
@@ -55,6 +56,11 @@ const navItems = [
 const dateFormatter = new Intl.DateTimeFormat('en', { weekday: 'short', month: 'short', day: 'numeric' })
 const timeFormatter = new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit', second: '2-digit' })
 const currentYear = new Date().getFullYear()
+const motionEase = [0.2, 0.75, 0.25, 1]
+
+function MotionButton({ children, ...props }) {
+  return <motion.button whileTap={{ scale: 0.98 }} transition={{ duration: 0.12, ease: motionEase }} {...props}>{children}</motion.button>
+}
 
 function getOutcomeSummary(counts, total) {
   const categories = [
@@ -83,31 +89,66 @@ function getOutcomeSummary(counts, total) {
   }))
 }
 
-function getStoredGraduates() {
+function getLegacyGraduates() {
+  const stored = localStorage.getItem('alumni-tracker-graduates')
+  if (stored === null) return starterGraduates
+
+  let graduates
   try {
-    const storedVersion = localStorage.getItem('alumni-tracker-data-version')
-    const storedGraduates = JSON.parse(localStorage.getItem('alumni-tracker-graduates'))
-    if (storedVersion !== graduateStorageVersion) {
-      const graduates = Array.isArray(storedGraduates)
-        ? storedGraduates.map((graduate) => ({
-          ...graduate,
-          program: graduateProgram,
-          year: graduationYear,
-          academicBackground: graduate.academicBackground ?? 'Not specified',
-        }))
-        : starterGraduates
-      localStorage.setItem('alumni-tracker-graduates', JSON.stringify(graduates))
-      localStorage.setItem('alumni-tracker-data-version', graduateStorageVersion)
-      return graduates
-    }
-    return Array.isArray(storedGraduates) ? storedGraduates : starterGraduates
+    graduates = JSON.parse(stored)
   } catch {
-    return starterGraduates
+    throw new Error('Saved browser records could not be read for migration.')
   }
+  if (!Array.isArray(graduates)) {
+    throw new Error('Saved browser records are not a valid graduate list.')
+  }
+  if (localStorage.getItem('alumni-tracker-data-version') === graduateStorageVersion) {
+    return graduates
+  }
+
+  return graduates.map((graduate) => ({
+    ...graduate,
+    program: graduateProgram,
+    year: graduationYear,
+    academicBackground: graduate.academicBackground ?? 'Not specified',
+  }))
+}
+
+async function requestApi(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: {
+      Accept: 'application/json',
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...options.headers,
+    },
+  })
+
+  let payload
+  try {
+    payload = await response.json()
+  } catch {
+    throw new Error('The PHP API returned an invalid response. Check that the backend is running.')
+  }
+  if (!response.ok) {
+    throw new Error(payload.error ?? `The API request failed (${response.status}).`)
+  }
+  return payload
+}
+
+function graduateList(payload) {
+  if (!Array.isArray(payload.data)) {
+    throw new Error('The PHP API returned an invalid graduate list.')
+  }
+  return payload.data
 }
 
 function App() {
-  const [graduates, setGraduates] = useState(getStoredGraduates)
+  const reduceMotion = useReducedMotion()
+  const [graduates, setGraduates] = useState([])
+  const [databaseLoading, setDatabaseLoading] = useState(true)
+  const [databaseError, setDatabaseError] = useState('')
+  const [databaseRetry, setDatabaseRetry] = useState(0)
   const [currentTime, setCurrentTime] = useState(() => new Date())
   const [activePage, setActivePage] = useState('Overview')
   const [search, setSearch] = useState('')
@@ -116,9 +157,48 @@ function App() {
   const [editing, setEditing] = useState(null)
   const [profileGraduate, setProfileGraduate] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [savingGraduate, setSavingGraduate] = useState(false)
   const [toast, setToast] = useState('')
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const notificationRef = useRef(null)
+  const notificationButtonRef = useRef(null)
 
-  useEffect(() => localStorage.setItem('alumni-tracker-graduates', JSON.stringify(graduates)), [graduates])
+  useEffect(() => {
+    let cancelled = false
+    async function loadGraduates() {
+      setDatabaseLoading(true)
+      setDatabaseError('')
+      try {
+        let records = graduateList(await requestApi('/api/graduates'))
+        if (records.length === 0 && localStorage.getItem('alumni-tracker-mysql-migrated') !== 'true') {
+          const imported = await requestApi('/api/graduates/import', {
+            method: 'POST',
+            body: JSON.stringify({ graduates: getLegacyGraduates() }),
+          })
+          records = graduateList(imported)
+        }
+        try {
+          localStorage.setItem('alumni-tracker-mysql-migrated', 'true')
+        } catch (error) {
+          console.warn('Could not save the browser migration marker.', error)
+        }
+        if (!cancelled) setGraduates(records)
+      } catch (error) {
+        if (!cancelled) {
+          setDatabaseError(error instanceof Error ? error.message : 'Could not load graduates from MySQL.')
+        }
+      } finally {
+        if (!cancelled) setDatabaseLoading(false)
+      }
+    }
+
+    loadGraduates()
+    return () => {
+      cancelled = true
+    }
+  }, [databaseRetry])
+
   useEffect(() => {
     const timer = window.setInterval(() => setCurrentTime(new Date()), 1000)
     return () => window.clearInterval(timer)
@@ -128,6 +208,24 @@ function App() {
     const timer = window.setTimeout(() => setToast(''), 2600)
     return () => window.clearTimeout(timer)
   }, [toast])
+  useEffect(() => {
+    if (!notificationsOpen) return undefined
+    const closeOnPointerDown = (event) => {
+      if (!notificationRef.current?.contains(event.target)) setNotificationsOpen(false)
+    }
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') {
+        setNotificationsOpen(false)
+        notificationButtonRef.current?.focus()
+      }
+    }
+    window.addEventListener('pointerdown', closeOnPointerDown)
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      window.removeEventListener('pointerdown', closeOnPointerDown)
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [notificationsOpen])
 
   const filtered = useMemo(() => graduates.filter((graduate) => {
     const query = search.trim().toLowerCase()
@@ -141,6 +239,7 @@ function App() {
     seekingWork: graduates.filter((graduate) => graduate.status === 'Seeking work').length,
     unreported: graduates.filter((graduate) => graduate.status === 'Unreported').length,
   }
+  const pendingOutcomes = outcomeCounts.unreported
   const outcomeSummary = getOutcomeSummary(outcomeCounts, graduates.length)
   const outcomeRate = (count) => graduates.length ? Math.round((count / graduates.length) * 100) : 0
   const classOutcomes = [...graduates.reduce((years, graduate) => {
@@ -171,23 +270,42 @@ function App() {
   function openForm(graduate = null) {
     setProfileGraduate(null)
     setEditing(graduate)
+    setFormError('')
     setModalOpen(true)
   }
 
-  function saveGraduate(event) {
+  async function saveGraduate(event) {
     event.preventDefault()
+    setFormError('')
     const form = new FormData(event.currentTarget)
     const updated = {
-      id: editing?.id ?? Date.now(), name: form.get('name').trim(), email: form.get('email').trim(),
+      name: form.get('name').trim(), email: form.get('email').trim(),
       program: form.get('program').trim(), year: Number(form.get('year')), status: form.get('status'),
       academicBackground: form.get('academicBackground'),
       role: form.get('role').trim() || '-', employer: form.get('employer').trim() || '-',
       location: form.get('location').trim() || '-', color: editing?.color ?? ['coral', 'blue', 'yellow', 'green', 'pink', 'purple'][graduates.length % 6],
     }
-    setGraduates((current) => editing ? current.map((item) => item.id === editing.id ? updated : item) : [updated, ...current])
-    setModalOpen(false)
-    setEditing(null)
-    setToast(editing ? 'Graduate record updated' : 'Graduate added to your records')
+    setSavingGraduate(true)
+    try {
+      const saved = await requestApi(
+        editing ? `/api/graduates?id=${encodeURIComponent(editing.id)}` : '/api/graduates',
+        { method: editing ? 'PUT' : 'POST', body: JSON.stringify(updated) },
+      )
+      if (!saved.data || typeof saved.data.id !== 'number') {
+        throw new Error('The PHP API did not return the saved graduate record.')
+      }
+
+      setGraduates((current) => editing
+        ? current.map((item) => item.id === editing.id ? saved.data : item)
+        : [saved.data, ...current])
+      setModalOpen(false)
+      setEditing(null)
+      setToast(editing ? 'Graduate record updated' : 'Graduate added to your records')
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Could not save this graduate record.')
+    } finally {
+      setSavingGraduate(false)
+    }
   }
 
   function exportCsv(records = filtered, filename = 'alumni-graduate-records.csv', message = 'Graduate records exported') {
@@ -286,51 +404,83 @@ function App() {
         </div>
         <div className="table-footer">
           <span>Showing <strong>{firstRow}-{lastRow}</strong> of <strong>{filtered.length}</strong> matching graduates</span>
-          {!limit && <button className="button button-subtle" onClick={() => exportCsv()}><ArrowDownToLine size={15} /> Export CSV</button>}
+          {!limit && <MotionButton className="button button-subtle" onClick={() => exportCsv()}><ArrowDownToLine size={15} /> Export CSV</MotionButton>}
         </div>
       </section>
     )
   }
 
   return (
+    <MotionConfig reducedMotion="user" transition={{ duration: 0.18, ease: motionEase }}>
     <div className="app-shell">
-      <aside className="sidebar">
-        <a className="brand" href="#overview" onClick={() => setActivePage('Overview')}>
-          <span className="brand-mark"><GraduationCap size={21} strokeWidth={2} /></span>
-          <span className="brand-copy"><strong>Alumni</strong><small>Graduate Tracking</small></span>
-        </a>
-
-        <div className="workspace-switcher">
-          <div className="school-avatar"><GraduationCap size={17} /></div>
-          <div className="workspace-copy"><strong>University Alumni Office</strong><span>Graduate relations</span></div>
-          <ChevronDown size={15} aria-hidden="true" />
-        </div>
-        <p className="nav-caption">MANAGEMENT</p>
-        <nav className="side-nav" aria-label="Main navigation">
-          {navItems.map(({ label, icon: Icon }) => (
-            <button key={label} className={`nav-item ${activePage === label ? 'active' : ''}`} aria-current={activePage === label ? 'page' : undefined} onClick={() => setActivePage(label)}>
-              <Icon size={18} strokeWidth={1.8} /><span>{label}</span>
-              {label === 'Graduates' && <span className="nav-count">{graduates.length}</span>}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <button className="profile-button">
-            <span className="profile-avatar">AA</span>
-            <span className="profile-copy"><strong>Alumni Admin</strong><small>Administrator</small></span>
-            <MoreHorizontal size={19} />
+      <nav className="floating-nav" id="primary-navigation" aria-label="Main navigation">
+        {navItems.map(({ label, icon: Icon }) => (
+          <button key={label} className={`nav-item ${activePage === label ? 'active' : ''}`} aria-current={activePage === label ? 'page' : undefined} onClick={() => setActivePage(label)}>
+            <Icon size={18} strokeWidth={1.8} /><span>{label}</span>
+            {label === 'Graduates' && <span className="nav-count">{graduates.length}</span>}
           </button>
-        </div>
-      </aside>
+        ))}
+      </nav>
 
       <main className="main-area">
         <header className="topbar">
-          <div className="mobile-brand"><span className="brand-mark"><GraduationCap size={18} /></span><strong>Alumni</strong></div>
-          <div className="breadcrumbs">Workspace <span>/</span> <strong>{activePage}</strong></div>
+          <a className="topbar-brand" href="#overview" onClick={() => setActivePage('Overview')}><span className="brand-mark"><GraduationCap size={18} /></span><strong>Alumni</strong></a>
           <div className="topbar-actions">
             <label className="global-search"><Search size={16} /><input aria-label="Search graduates globally" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search graduates..." /><kbd>⌘ K</kbd></label>
-            <button className="icon-button notification-button" aria-label="Notifications"><Bell size={18} /><span /></button>
-            <span className="topbar-divider" />
+            <div className="notification-wrap" ref={notificationRef}>
+              <button
+                ref={notificationButtonRef}
+                className="icon-button notification-button"
+                aria-label={pendingOutcomes ? `Notifications, ${pendingOutcomes} graduate outcomes need review` : 'Notifications'}
+                aria-haspopup="dialog"
+                aria-expanded={notificationsOpen}
+                aria-controls="notification-panel"
+                onClick={() => setNotificationsOpen((open) => !open)}
+              >
+                <Bell size={18} />
+                {pendingOutcomes > 0 && <span className="notification-count">{pendingOutcomes > 99 ? '99+' : pendingOutcomes}</span>}
+              </button>
+              <AnimatePresence>
+                {notificationsOpen && (
+                  <motion.div
+                    id="notification-panel"
+                    className="notification-popover"
+                    role="dialog"
+                    aria-labelledby="notification-title"
+                    initial={{ opacity: 0, y: reduceMotion ? 0 : -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: reduceMotion ? 0 : -5 }}
+                    transition={{ duration: reduceMotion ? 0.12 : 0.16, ease: motionEase }}
+                  >
+                    <div className="notification-popover-header">
+                      <div><h2 id="notification-title">Notifications</h2><p>{pendingOutcomes ? 'Needs your attention' : "You're all caught up"}</p></div>
+                      <button className="icon-button notification-close" aria-label="Close notifications" onClick={() => setNotificationsOpen(false)}><X size={16} /></button>
+                    </div>
+                    {pendingOutcomes > 0 ? (
+                      <button
+                        className="notification-item"
+                        onClick={() => {
+                          clearFilters()
+                          setStatusFilter('Unreported')
+                          setActivePage('Outcomes')
+                          setNotificationsOpen(false)
+                          notificationButtonRef.current?.focus()
+                        }}
+                      >
+                        <span className="notification-item-icon"><UsersRound size={17} /></span>
+                        <span className="notification-item-copy">
+                          <strong>Graduate outcomes need updating</strong>
+                          <span>{pendingOutcomes} graduate {pendingOutcomes === 1 ? 'record is' : 'records are'} marked as unreported.</span>
+                          <small>Review outcomes <ArrowRight size={13} /></small>
+                        </span>
+                      </button>
+                    ) : (
+                      <div className="notification-empty"><ShieldCheck size={18} /><span>No outstanding graduate updates.</span></div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
             <div className="topbar-datetime">
               <span className="topbar-date">{dateFormatter.format(currentTime)}</span>
               <time className="topbar-time" dateTime={currentTime.toISOString()}>{timeFormatter.format(currentTime)}</time>
@@ -338,36 +488,62 @@ function App() {
           </div>
         </header>
 
-        <div className="page-content">
+        <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={activePage}
+          className="page-content"
+          initial={{ opacity: 0, y: reduceMotion ? 0 : 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 0 }}
+          transition={{ duration: reduceMotion ? 0.12 : 0.18, ease: motionEase }}
+        >
           <section className="page-heading">
             <div className="page-heading-copy"><h1>{pageHeading[0]}</h1><p>{pageHeading[1]}</p></div>
             {activePage === 'Overview' || activePage === 'Graduates'
-              ? <button className="button button-primary" onClick={() => openForm()}><Plus size={17} /> Add graduate</button>
+              ? <MotionButton className="button button-primary" disabled={databaseLoading || Boolean(databaseError)} onClick={() => openForm()}><Plus size={17} /> Add graduate</MotionButton>
               : activePage === 'Outcomes'
-                ? <button className="button button-primary" onClick={() => setActivePage('Graduates')}>Browse graduates <ArrowRight size={16} /></button>
+                ? <MotionButton className="button button-primary" onClick={() => setActivePage('Graduates')}>Browse graduates <ArrowRight size={16} /></MotionButton>
                 : activePage === 'Settings'
-                  ? <button className="button button-subtle" onClick={() => exportCsv(graduates, 'alumni-graduate-register.csv', 'Graduate register exported')}><ArrowDownToLine size={16} /> Export records</button>
+                  ? <MotionButton className="button button-subtle" onClick={() => exportCsv(graduates, 'alumni-graduate-register.csv', 'Graduate register exported')}><ArrowDownToLine size={16} /> Export records</MotionButton>
                 : null}
           </section>
+          {databaseLoading && <div className="database-notice" role="status">Connecting to the MySQL database…</div>}
+          {databaseError && (
+            <div className="database-notice database-notice-error" role="alert">
+              <div><strong>Could not load graduate records</strong><span>{databaseError}</span></div>
+              <MotionButton className="button button-subtle" onClick={() => setDatabaseRetry((attempt) => attempt + 1)}>Retry</MotionButton>
+            </div>
+          )}
           {activePage === 'Overview' && (
             <>
-              <section className="summary-strip" aria-label="Graduate summary statistics">
+              <motion.section className="summary-strip" aria-label="Graduate summary statistics">
                 {[
                   { label: 'Total Graduates', value: graduates.length, note: 'Records in directory' },
                   { label: 'Employed', value: outcomeCounts.employed, note: `${outcomeRate(outcomeCounts.employed)}% of graduates` },
                   { label: 'Further Studies', value: outcomeCounts.furtherStudy, note: `${outcomeRate(outcomeCounts.furtherStudy)}% of graduates` },
                   { label: 'Seeking Work', value: outcomeCounts.seekingWork, note: `${outcomeRate(outcomeCounts.seekingWork)}% of graduates` },
                   { label: 'Unreported', value: outcomeCounts.unreported, note: `${outcomeRate(outcomeCounts.unreported)}% of graduates` },
-                ].map(({ label, value, note }) => (
-                  <div className="summary-stat-item" key={label}>
+                ].map(({ label, value, note }, index) => (
+                  <motion.div
+                    className="summary-stat-item"
+                    key={label}
+                    initial={{ opacity: 0, y: reduceMotion ? 0 : 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: reduceMotion ? 0.12 : 0.22, delay: index * 0.035, ease: motionEase }}
+                  >
                     <span className="metric-label">{label}</span>
                     <strong className="metric-value">{value.toLocaleString()}</strong>
                     <span className="metric-note">{note}</span>
-                  </div>
+                  </motion.div>
                 ))}
-              </section>
-              <section className="overview-analytics">
-                <article className="chart-card">
+              </motion.section>
+              <motion.section
+                className="overview-analytics"
+                initial={{ opacity: 0, y: reduceMotion ? 0 : 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: reduceMotion ? 0.12 : 0.24, delay: 0.06, ease: motionEase }}
+              >
+                <motion.article className="chart-card" whileHover={reduceMotion ? undefined : { y: -2 }}>
                   <div className="panel-heading">
                     <div><span className="eyebrow">DESTINATIONS</span><h2>Outcome distribution</h2><p>Reported first destinations across the directory.</p></div>
                     <div className="chart-total"><strong>{graduates.length}</strong><span>graduates</span></div>
@@ -382,8 +558,8 @@ function App() {
                       <div className="chart-legend-item" key={label}><span className={`outcome-key ${className}`} /><span>{label === 'Further study' ? 'Further Studies' : label}</span><strong>{count}</strong><small>{percentage}%</small></div>
                     ))}
                   </div>
-                </article>
-                <article className="cohort-card">
+                </motion.article>
+                <motion.article className="cohort-card" whileHover={reduceMotion ? undefined : { y: -2 }}>
                   <div className="panel-heading">
                     <div><span className="eyebrow">CLASS PROFILE</span><h2>Graduates by year</h2><p>Records grouped by graduation year.</p></div>
                     <CalendarDays size={19} className="muted-icon" />
@@ -395,8 +571,8 @@ function App() {
                     </div>
                   )) : <p className="empty-copy">Graduation year data will appear here.</p>}
                   <div className="cohort-footnote"><span>Program</span><strong>{programOutcomes.length === 1 ? programOutcomes[0].name : `${programOutcomes.length} programs`}</strong></div>
-                </article>
-              </section>
+                </motion.article>
+              </motion.section>
               <div className="section-heading"><div><span className="eyebrow">DIRECTORY</span><h2>Recently added graduates</h2></div><button className="text-button" onClick={() => setActivePage('Graduates')}>View all graduates <ArrowRight size={16} /></button></div>
               {renderDirectory('Graduate records', 'A snapshot of your most recent graduate records.', 5)}
             </>
@@ -494,18 +670,32 @@ function App() {
                   <div className="year-legend"><span><i className="employed" /> Employed</span><span><i className="further-study" /> Further Studies</span><span><i className="seeking-work" /> Seeking Work</span><span><i className="unreported" /> Unreported</span></div>
                 </article>
               </div>
-              <div className="reports-heading"><div><span className="eyebrow">DATA EXPORTS</span><h2>Reports & exports</h2><p>Export the latest records saved in this browser.</p></div></div>
+              <div className="reports-heading"><div><span className="eyebrow">DATA EXPORTS</span><h2>Reports & exports</h2><p>Export the latest records loaded from the database.</p></div></div>
               <div className="report-list">
-                <article className="report-option">
+                <motion.article
+                  className="report-option"
+                  initial={{ opacity: 0, y: reduceMotion ? 0 : 6 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  whileHover={reduceMotion ? undefined : { y: -2 }}
+                  viewport={{ once: true, amount: 0.2 }}
+                  transition={{ duration: reduceMotion ? 0.12 : 0.2, ease: motionEase }}
+                >
                   <div className="report-option-icon"><FileSpreadsheet size={19} /></div>
                   <div className="report-option-copy"><h3>Graduate register</h3><p>Every graduate, with contact, program, outcome, and employment details.</p><span className="report-meta">CSV file, {graduates.length} rows</span></div>
-                  <button className="button button-subtle" onClick={() => exportCsv(graduates, 'alumni-graduate-register.csv', 'Graduate register exported')}><ArrowDownToLine size={15} /> Export register</button>
-                </article>
-                <article className="report-option">
+                  <MotionButton className="button button-subtle" onClick={() => exportCsv(graduates, 'alumni-graduate-register.csv', 'Graduate register exported')}><ArrowDownToLine size={15} /> Export register</MotionButton>
+                </motion.article>
+                <motion.article
+                  className="report-option"
+                  initial={{ opacity: 0, y: reduceMotion ? 0 : 6 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  whileHover={reduceMotion ? undefined : { y: -2 }}
+                  viewport={{ once: true, amount: 0.2 }}
+                  transition={{ duration: reduceMotion ? 0.12 : 0.2, delay: 0.06, ease: motionEase }}
+                >
                   <div className="report-option-icon report-outcomes-icon"><BriefcaseBusiness size={19} /></div>
                   <div className="report-option-copy"><h3>Class outcomes</h3><p>Employment and study destinations grouped by graduation year.</p><span className="report-meta">CSV file, {[...new Set(graduates.map(({ year }) => year).filter(Number.isFinite))].length} classes</span></div>
-                  <button className="button button-subtle" onClick={exportOutcomesCsv}><ArrowDownToLine size={15} /> Export outcomes</button>
-                </article>
+                  <MotionButton className="button button-subtle" onClick={exportOutcomesCsv}><ArrowDownToLine size={15} /> Export outcomes</MotionButton>
+                </motion.article>
               </div>
               <p className="reports-note">CSV files open in spreadsheet apps such as Excel and Google Sheets.</p>
             </section>
@@ -526,19 +716,30 @@ function App() {
               <article className="panel settings-card storage-card">
                 <div className="settings-card-heading">
                   <div className="settings-icon storage-icon"><ShieldCheck size={19} /></div>
-                  <div><span className="eyebrow">DATA & PRIVACY</span><h2>Browser storage</h2><p>Your graduate records are saved locally in this browser.</p></div>
+                  <div><span className="eyebrow">DATA & PRIVACY</span><h2>MySQL database</h2><p>Graduate records are stored in the connected MySQL database.</p></div>
                 </div>
-                <div className="storage-status"><span className="status-indicator" /> All changes save automatically</div>
-                <div className="settings-actions"><button className="button button-subtle" onClick={() => exportCsv(graduates, 'alumni-graduate-register.csv', 'Graduate register exported')}><ArrowDownToLine size={16} /> Export all records</button><span>Keep an exported copy for your records.</span></div>
+                <div className={`storage-status${databaseError ? ' storage-status-error' : ''}`}><span className="status-indicator" />{databaseLoading ? 'Connecting to the database…' : databaseError ? 'Database connection failed' : 'Connected · changes save to MySQL'}</div>
+                <div className="settings-actions"><MotionButton className="button button-subtle" onClick={() => exportCsv(graduates, 'alumni-graduate-register.csv', 'Graduate register exported')}><ArrowDownToLine size={16} /> Export all records</MotionButton><span>Keep an exported copy for your records.</span></div>
               </article>
             </section>
           )}
           <footer className="page-footer"><span>Alumni Graduate Tracking</span><span>Graduate relations workspace</span></footer>
-        </div>
+        </motion.div>
+        </AnimatePresence>
       </main>
+      <AnimatePresence>
       {profileGraduate && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setProfileGraduate(null) }}>
-          <section className="graduate-modal profile-modal" role="dialog" aria-modal="true" aria-labelledby="profile-title">
+        <motion.div className="modal-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0.12 : 0.16, ease: motionEase }} onMouseDown={(event) => { if (event.target === event.currentTarget) setProfileGraduate(null) }}>
+          <motion.section
+            className="graduate-modal profile-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="profile-title"
+            initial={{ opacity: 0, scale: reduceMotion ? 1 : 0.98, y: reduceMotion ? 0 : 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: reduceMotion ? 1 : 0.98, y: reduceMotion ? 0 : 8 }}
+            transition={{ duration: reduceMotion ? 0.12 : 0.2, ease: motionEase }}
+          >
             <div className="profile-header">
               <span className={`profile-large-avatar avatar-${profileGraduate.color}`}>{profileGraduate.name.split(' ').map((part) => part[0]).join('')}</span>
               <div className="profile-heading-copy"><span className="eyebrow">GRADUATE PROFILE</span><h2 id="profile-title">{profileGraduate.name}</h2><span className={`outcome-pill ${profileGraduate.status.toLowerCase().replace(' ', '-')}`}><i />{profileGraduate.status === 'Further study' ? 'Further Studies' : profileGraduate.status}</span></div>
@@ -553,13 +754,24 @@ function App() {
               <div className="profile-detail"><span><Building2 size={15} /> Company or organization</span><strong>{profileGraduate.employer}</strong></div>
               <div className="profile-detail"><span>Location</span><strong>{profileGraduate.location}</strong></div>
             </div>
-            <div className="modal-actions"><button className="button button-subtle" onClick={() => setProfileGraduate(null)}>Close</button><button className="button button-primary" onClick={() => openForm(profileGraduate)}><Pencil size={15} /> Edit profile</button></div>
-          </section>
-        </div>
+            <div className="modal-actions"><MotionButton className="button button-subtle" onClick={() => setProfileGraduate(null)}>Close</MotionButton><MotionButton className="button button-primary" onClick={() => openForm(profileGraduate)}><Pencil size={15} /> Edit profile</MotionButton></div>
+          </motion.section>
+        </motion.div>
       )}
+      </AnimatePresence>
+      <AnimatePresence>
       {modalOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false) }}>
-          <section className="graduate-modal" role="dialog" aria-modal="true" aria-labelledby="graduate-modal-title">
+        <motion.div className="modal-backdrop" role="presentation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduceMotion ? 0.12 : 0.16, ease: motionEase }} onMouseDown={(event) => { if (event.target === event.currentTarget) setModalOpen(false) }}>
+          <motion.section
+            className="graduate-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="graduate-modal-title"
+            initial={{ opacity: 0, scale: reduceMotion ? 1 : 0.98, y: reduceMotion ? 0 : 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: reduceMotion ? 1 : 0.98, y: reduceMotion ? 0 : 8 }}
+            transition={{ duration: reduceMotion ? 0.12 : 0.2, ease: motionEase }}
+          >
             <div className="modal-header">
               <div><span className="modal-icon"><GraduationCap size={19} /></span><h2 id="graduate-modal-title">{editing ? 'Edit graduate' : 'Add a graduate'}</h2><p>Keep their next chapter in view.</p></div>
               <button className="icon-button modal-close" aria-label="Close dialog" onClick={() => setModalOpen(false)}><X size={19} /></button>
@@ -576,13 +788,18 @@ function App() {
                 <label className="form-field"><span>Employer / institution</span><input name="employer" defaultValue={editing?.employer === '-' ? '' : editing?.employer ?? ''} placeholder="Organization name" /></label>
                 <label className="form-field form-full"><span>Location</span><input name="location" defaultValue={editing?.location === '-' ? '' : editing?.location ?? ''} placeholder="City, State" /></label>
               </div>
-              <div className="modal-actions"><button type="button" className="button button-subtle" onClick={() => setModalOpen(false)}>Cancel</button><button type="submit" className="button button-primary">{editing ? 'Save changes' : 'Add graduate'} <ArrowRight size={16} /></button></div>
+              {formError && <p className="form-error" role="alert">{formError}</p>}
+              <div className="modal-actions"><MotionButton type="button" className="button button-subtle" disabled={savingGraduate} onClick={() => setModalOpen(false)}>Cancel</MotionButton><MotionButton type="submit" className="button button-primary" disabled={savingGraduate}>{savingGraduate ? 'Saving…' : editing ? 'Save changes' : 'Add graduate'} {!savingGraduate && <ArrowRight size={16} />}</MotionButton></div>
             </form>
-          </section>
-        </div>
+          </motion.section>
+        </motion.div>
       )}
-      {toast && <div className="toast-message" role="status"><span className="toast-check">✓</span>{toast}</div>}
+      </AnimatePresence>
+      <AnimatePresence>
+        {toast && <motion.div className="toast-message" role="status" initial={{ opacity: 0, y: reduceMotion ? 0 : 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: reduceMotion ? 0 : 8 }} transition={{ duration: reduceMotion ? 0.12 : 0.18, ease: motionEase }}><span className="toast-check">✓</span>{toast}</motion.div>}
+      </AnimatePresence>
     </div>
+    </MotionConfig>
   )
 }
 

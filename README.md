@@ -102,9 +102,11 @@ A React-powered interface designed for a streamlined management experience.
 | ⚛️ React 19 | User interface |
 | ⚡ Vite 8 | Development and build tooling |
 | 🟨 JavaScript | Application logic |
+| 🎞️ Motion | React animations |
 | 🎨 Lucide React | Interface icons |
+| 🐘 PHP + PDO | JSON API |
+| 🐬 MySQL | Graduate record storage |
 | 🔍 Oxlint | Code linting |
-| 💾 Browser Local Storage | Prototype data persistence |
 
 </div>
 
@@ -118,6 +120,9 @@ alumni/
 ├── public/             # Static assets
 │
 ├── src/                # Application source code
+│
+├── backend/            # PHP API and development router
+├── database/           # MySQL schema
 │
 ├── .agents/
 │   └── skills/         # Project-specific agent skills
@@ -155,21 +160,41 @@ cd alumni
 npm install
 ```
 
-### 04 — Start the development server
+### 04 — Configure and start the PHP API
+
+Install PHP 8.1+ with PDO MySQL enabled, plus MySQL 8+. Create the database and table:
+
+```bash
+mysql -u root -p < database/schema.sql
+```
+
+In PowerShell, set the connection settings and start the PHP development server from the project root:
+
+```powershell
+$env:DB_HOST = "127.0.0.1"
+$env:DB_NAME = "alumni_tracker"
+$env:DB_USER = "root"
+$env:DB_PASSWORD = "your-local-password"
+php -S 127.0.0.1:8000 -t . backend/router.php
+```
+
+### 05 — Start the frontend
+
+In a second terminal:
 
 ```bash
 npm run dev
 ```
 
-Open the local URL provided by Vite in your browser.
+Open the local URL provided by Vite. Its `/api` requests are proxied to the PHP server.
 
-### 05 — Production build
+### 06 — Production build
 
 ```bash
 npm run build
 ```
 
-### 06 — Run linting
+### 07 — Run linting
 
 ```bash
 npm run lint
@@ -179,11 +204,11 @@ npm run lint
 
 ## ◈ DATA & STORAGE
 
-The current project is a frontend prototype.
+Graduate records are stored in MySQL. The PHP API reads connection settings from `DB_HOST`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD`; `DB_HOST` and `DB_NAME` default to `127.0.0.1` and `alumni_tracker`.
 
-Graduate records are stored using browser Local Storage. This means data is maintained within the browser environment rather than a centralized database.
+On the first successful load against an empty database, the app imports existing browser records from `alumni-tracker-graduates`, or the starter records if none exist. The browser data is left intact. The API's import route only imports when the graduates table is empty.
 
-For production deployment involving real graduate information, an authenticated backend and database should be integrated.
+**Security notice:** The PHP API currently has no authentication or authorization and is for local development/demo use only. Do not expose it publicly or use it with real sensitive graduate data until access control and deployment security are added.
 
 ---
 
