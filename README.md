@@ -162,31 +162,21 @@ npm install
 
 ### 04 — Configure and start the PHP API
 
-Install PHP 8.1+ with PDO MySQL enabled, plus MySQL 8+. Create the database and table:
+Install PHP 8.1+ with PDO MySQL enabled, plus MySQL 8+. On XAMPP, `npm run dev` starts the PHP API automatically using the default `root` account with a blank password. Set `DB_HOST`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` in the same terminal before starting Vite if your MySQL credentials differ. Create the database and table:
 
 ```bash
 mysql -u root -p < database/schema.sql
 ```
 
-In PowerShell, set the connection settings and start the PHP development server from the project root:
+### 05 — Start the app
 
-```powershell
-$env:DB_HOST = "127.0.0.1"
-$env:DB_NAME = "alumni_tracker"
-$env:DB_USER = "root"
-$env:DB_PASSWORD = "your-local-password"
-php -S 127.0.0.1:8000 -t . backend/router.php
-```
-
-### 05 — Start the frontend
-
-In a second terminal:
+From the project root:
 
 ```bash
 npm run dev
 ```
 
-Open the local URL provided by Vite. Its `/api` requests are proxied to the PHP server.
+Open the local URL provided by Vite. The development server starts the PHP API and proxies `/api` requests to it. If PHP is not on your PATH and you are not using XAMPP, set `PHP_BINARY` to your PHP executable.
 
 ### 06 — Production build
 
