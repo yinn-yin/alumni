@@ -462,6 +462,19 @@ select:focus-visible {
   font-weight: 500;
 }
 
+.topbar-datetime {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+}
+
+.topbar-time {
+  color: #33425a;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .mobile-brand {
   display: none;
 }
@@ -1031,7 +1044,7 @@ select:focus-visible {
 
 table {
   width: 100%;
-  min-width: 1120px;
+  min-width: 1220px;
   border-collapse: collapse;
   text-align: left;
   white-space: nowrap;
@@ -1154,6 +1167,24 @@ tbody tr:last-child td {
 .class-year {
   color: #34435b;
   font-weight: 650;
+}
+
+.academic-honor {
+  display: inline-block;
+  padding: 5px 8px;
+  border: 1px solid #cde8e3;
+  border-radius: 999px;
+  color: #16756d;
+  background: #eff9f6;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.academic-honor-unreported {
+  border-color: #e4e9f0;
+  color: #778398;
+  background: #f7f8fa;
+  font-weight: 500;
 }
 
 .outcome-pill {
@@ -2322,7 +2353,7 @@ tbody tr:last-child td {
   }
 
   .breadcrumbs,
-  .topbar-date,
+  .topbar-datetime,
   .topbar-divider,
   .global-search,
   .notification-button {

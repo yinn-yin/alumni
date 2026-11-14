@@ -34,6 +34,7 @@ const starterGraduates = graduateNames.map((name, index) => {
     email: `${emailName}.${String(index + 1).padStart(2, '0')}@example.com`,
     program: graduateProgram,
     year: graduationYear,
+    academicBackground: 'Not specified',
     status: 'Unreported',
     role: '-',
     employer: '-',
@@ -41,7 +42,7 @@ const starterGraduates = graduateNames.map((name, index) => {
     color: avatarColors[index % avatarColors.length],
   }
 })
-const graduateStorageVersion = '3'
+const graduateStorageVersion = '4'
 
 const navItems = [
   { label: 'Overview', icon: LayoutDashboard },
@@ -51,7 +52,8 @@ const navItems = [
   { label: 'Settings', icon: Settings },
 ]
 
-const currentDate = new Intl.DateTimeFormat('en', { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date())
+const dateFormatter = new Intl.DateTimeFormat('en', { weekday: 'short', month: 'short', day: 'numeric' })
+const timeFormatter = new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit', second: '2-digit' })
 const currentYear = new Date().getFullYear()
 
 function getOutcomeSummary(counts, total) {
@@ -87,7 +89,12 @@ function getStoredGraduates() {
     const storedGraduates = JSON.parse(localStorage.getItem('alumni-tracker-graduates'))
     if (storedVersion !== graduateStorageVersion) {
       const graduates = Array.isArray(storedGraduates)
-        ? storedGraduates.map((graduate) => ({ ...graduate, program: graduateProgram, year: graduationYear }))
+        ? storedGraduates.map((graduate) => ({
+          ...graduate,
+          program: graduateProgram,
+          year: graduationYear,
+          academicBackground: graduate.academicBackground ?? 'Not specified',
+        }))
         : starterGraduates
       localStorage.setItem('alumni-tracker-graduates', JSON.stringify(graduates))
       localStorage.setItem('alumni-tracker-data-version', graduateStorageVersion)
@@ -101,6 +108,7 @@ function getStoredGraduates() {
 
 function App() {
   const [graduates, setGraduates] = useState(getStoredGraduates)
+  const [currentTime, setCurrentTime] = useState(() => new Date())
   const [activePage, setActivePage] = useState('Overview')
   const [search, setSearch] = useState('')
   const [yearFilter, setYearFilter] = useState('All years')
@@ -111,6 +119,10 @@ function App() {
   const [toast, setToast] = useState('')
 
   useEffect(() => localStorage.setItem('alumni-tracker-graduates', JSON.stringify(graduates)), [graduates])
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(new Date()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
   useEffect(() => {
     if (!toast) return undefined
     const timer = window.setTimeout(() => setToast(''), 2600)
@@ -168,6 +180,7 @@ function App() {
     const updated = {
       id: editing?.id ?? Date.now(), name: form.get('name').trim(), email: form.get('email').trim(),
       program: form.get('program').trim(), year: Number(form.get('year')), status: form.get('status'),
+      academicBackground: form.get('academicBackground'),
       role: form.get('role').trim() || '-', employer: form.get('employer').trim() || '-',
       location: form.get('location').trim() || '-', color: editing?.color ?? ['coral', 'blue', 'yellow', 'green', 'pink', 'purple'][graduates.length % 6],
     }
@@ -178,8 +191,8 @@ function App() {
   }
 
   function exportCsv(records = filtered, filename = 'alumni-graduate-records.csv', message = 'Graduate records exported') {
-    const columns = ['Name', 'Email', 'Program', 'Graduation year', 'Outcome', 'Role', 'Employer', 'Location']
-    const values = records.map(({ name, email, program, year, status, role, employer, location }) => [name, email, program, year, status, role, employer, location])
+    const columns = ['Name', 'Email', 'Program', 'Graduation year', 'Academic background', 'Outcome', 'Role', 'Employer', 'Location']
+    const values = records.map(({ name, email, program, year, academicBackground, status, role, employer, location }) => [name, email, program, year, academicBackground ?? 'Not specified', status, role, employer, location])
     const csv = [columns, ...values].map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(',')).join('\n')
     const link = document.createElement('a')
     link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
@@ -244,7 +257,7 @@ function App() {
         </div>
         <div className="table-scroll">
           <table>
-            <thead><tr><th>GRADUATE NAME</th><th>EMAIL ADDRESS</th><th>PROGRAM</th><th>YEAR GRADUATED</th><th>EMPLOYMENT OUTCOME</th><th>ROLE &amp; ORGANIZATION</th><th>ACTIONS</th></tr></thead>
+            <thead><tr><th>GRADUATE NAME</th><th>EMAIL ADDRESS</th><th>PROGRAM</th><th>YEAR GRADUATED</th><th>ACADEMIC BACKGROUND</th><th>EMPLOYMENT OUTCOME</th><th>ROLE &amp; ORGANIZATION</th><th>ACTIONS</th></tr></thead>
             <tbody>
               {rows.map((graduate, index) => (
                 <tr key={graduate.id} className="result-row" style={{ animationDelay: `${index * 35}ms` }}>
@@ -252,6 +265,7 @@ function App() {
                   <td><span className="email-address">{graduate.email}</span></td>
                   <td><span className="program-name">{graduate.program}</span></td>
                   <td><span className="class-year">{graduate.year ?? '—'}</span></td>
+                  <td><span className={`academic-honor${graduate.academicBackground === 'Not specified' ? ' academic-honor-unreported' : ''}`}>{graduate.academicBackground ?? 'Not specified'}</span></td>
                   <td><span className={`outcome-pill ${graduate.status.toLowerCase().replace(' ', '-')}`}><i />{graduate.status === 'Further study' ? 'Further Studies' : graduate.status}</span></td>
                   <td><span className="job-title">{graduate.role}</span><small className="employer-name">{graduate.employer}</small></td>
                   <td><div className="table-actions"><button className="row-action" aria-label={`View ${graduate.name}`} onClick={() => setProfileGraduate(graduate)}><Eye size={16} /></button><button className="row-action" aria-label={`Edit ${graduate.name}`} onClick={() => openForm(graduate)}><Pencil size={15} /></button></div></td>
@@ -259,7 +273,7 @@ function App() {
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td className="empty-state" colSpan="7">
+                  <td className="empty-state" colSpan="8">
                     <Search size={19} />
                     <strong>{activePage === 'Outcomes' && statusFilter !== 'All outcomes' ? 'No graduates have this outcome yet' : 'No graduates found'}</strong>
                     <span>{activePage === 'Outcomes' && statusFilter !== 'All outcomes' ? 'Choose another destination to see its records.' : 'Try adjusting your search or filters.'}</span>
@@ -317,7 +331,10 @@ function App() {
             <label className="global-search"><Search size={16} /><input aria-label="Search graduates globally" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search graduates..." /><kbd>⌘ K</kbd></label>
             <button className="icon-button notification-button" aria-label="Notifications"><Bell size={18} /><span /></button>
             <span className="topbar-divider" />
-            <span className="topbar-date">{currentDate}</span>
+            <div className="topbar-datetime">
+              <span className="topbar-date">{dateFormatter.format(currentTime)}</span>
+              <time className="topbar-time" dateTime={currentTime.toISOString()}>{timeFormatter.format(currentTime)}</time>
+            </div>
           </div>
         </header>
 
@@ -531,6 +548,7 @@ function App() {
               <div className="profile-detail"><span><Mail size={15} /> Email address</span><strong>{profileGraduate.email}</strong></div>
               <div className="profile-detail"><span><GraduationCap size={15} /> Program</span><strong>{profileGraduate.program}</strong></div>
               <div className="profile-detail"><span><CalendarDays size={15} /> Graduation year</span><strong>{profileGraduate.year ?? '—'}</strong></div>
+              <div className="profile-detail"><span><GraduationCap size={15} /> Academic background</span><strong>{profileGraduate.academicBackground ?? 'Not specified'}</strong></div>
               <div className="profile-detail"><span><BriefcaseBusiness size={15} /> Current job position</span><strong>{profileGraduate.role}</strong></div>
               <div className="profile-detail"><span><Building2 size={15} /> Company or organization</span><strong>{profileGraduate.employer}</strong></div>
               <div className="profile-detail"><span>Location</span><strong>{profileGraduate.location}</strong></div>
@@ -553,6 +571,7 @@ function App() {
                 <label className="form-field form-full"><span>Program</span><input name="program" required defaultValue={editing?.program ?? ''} placeholder="e.g. Computer Science" /></label>
                 <label className="form-field"><span>Graduation year</span><input name="year" type="number" min="1950" max="2100" required defaultValue={editing?.year ?? currentYear} /></label>
                 <label className="form-field"><span>Current outcome</span><select name="status" defaultValue={editing?.status ?? 'Employed'}><option>Employed</option><option>Further study</option><option>Seeking work</option><option>Unreported</option></select></label>
+                <label className="form-field form-full"><span>Academic background</span><select name="academicBackground" defaultValue={editing?.academicBackground ?? 'Not specified'}><option>Not specified</option><option>Cum Laude</option><option>Magna Cum Laude</option><option>Summa Cum Laude</option></select></label>
                 <label className="form-field"><span>Role / course</span><input name="role" defaultValue={editing?.role === '-' ? '' : editing?.role ?? ''} placeholder="e.g. Product Designer" /></label>
                 <label className="form-field"><span>Employer / institution</span><input name="employer" defaultValue={editing?.employer === '-' ? '' : editing?.employer ?? ''} placeholder="Organization name" /></label>
                 <label className="form-field form-full"><span>Location</span><input name="location" defaultValue={editing?.location === '-' ? '' : editing?.location ?? ''} placeholder="City, State" /></label>
